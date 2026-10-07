@@ -6,8 +6,12 @@ Repositório do app de ciclismo: jogo single player de treino para smart trainer
 
 | Caminho | O que é |
 | --- | --- |
-| `index.html` | Página de teste de conexão: liga ao trainer por Bluetooth FTMS e ao monitor cardíaco, com modos ERG e inclinação. Publicada pelo GitHub Pages. |
-| `src/ftms.js` | Leitura e comandos do FTMS e do monitor cardíaco (fonte; uma cópia está embutida no `index.html`). |
+| `index.html` | Página publicada pelo GitHub Pages: conecta o rolo (Bluetooth FTMS) e o cardíaco, roda percursos e tem os modos ERG e inclinação manuais. **Gerada** por `ferramentas/montar.py`; não edite direto. |
+| `src/pagina.html` | Modelo da página (HTML, estilo e lógica da tela). |
+| `src/ftms.js` | Leitura e comandos do FTMS e do monitor cardíaco. |
+| `src/percurso.js` | Versões reduzidas do percurso, posição no percurso e física (potência vira velocidade). |
+| `rotas/` | Percursos: o GPX original e o `.json` convertido (trechos de 100 m com inclinação). |
+| `ferramentas/` | `gpx_para_rota.py` converte GPX em percurso; `montar.py` gera o `index.html`. |
 | `treinos/` | Modelo de tabela para os treinos pré-desenvolvidos e explicação das colunas. |
 | `documentos/` | Desenho do núcleo do jogo (perfil do atleta, treinos, testes de FTP, bots, análise). |
 
@@ -20,4 +24,11 @@ Abra o link do GitHub Pages do repositório:
 
 Toque em "Conectar trainer", escolha o rolo e use os botões de ERG e inclinação.
 
-Ao alterar `src/ftms.js`, copie a mudança para o bloco embutido no `index.html`.
+## Como adicionar um percurso
+
+1. Coloque o GPX em `rotas/` e converta: `python3 ferramentas/gpx_para_rota.py rotas/nome.gpx rotas/nome.json "Nome do percurso"`
+2. Gere a página: `python3 ferramentas/montar.py`
+
+Cada percurso aparece em três versões na página: 33%, 66% e 100% da distância, com as mesmas inclinações.
+
+Depois de mudar qualquer arquivo em `src/` ou `rotas/`, rode `python3 ferramentas/montar.py` antes de publicar.
