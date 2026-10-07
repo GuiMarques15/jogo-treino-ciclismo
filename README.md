@@ -36,7 +36,7 @@ O cartão "Percursos salvos" lista tudo e permite baixar o CSV ou apagar. Os dad
 
 ## Como adicionar um percurso
 
-1. Coloque o GPX em `rotas/` e converta: `python3 ferramentas/gpx_para_rota.py rotas/nome.gpx rotas/nome.json "Nome do percurso"`
+1. Coloque o GPX em `rotas/` e converta: `python3 ferramentas/gpx_para_rota.py rotas/nome.gpx rotas/nome.json "Nome do percurso"`. Se o GPX tiver picos irreais nas curvas, acrescente a inclinação máxima no fim (ex.: `14`): os picos são aparados e a subida que sobra vai para os trechos vizinhos. A Serra do Rio do Rastro foi gerada com `14`.
 2. Gere a página: `python3 ferramentas/montar.py`
 
 Cada percurso aparece em três versões na página: 33%, 66% e 100% da distância, com as mesmas inclinações.

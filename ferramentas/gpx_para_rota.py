@@ -1,6 +1,9 @@
 """Converte um arquivo GPX em percurso do jogo: trechos de distância fixa com inclinação.
 
-Uso: python3 ferramentas/gpx_para_rota.py rotas/arquivo.gpx rotas/arquivo.json "Nome do percurso"
+Uso: python3 ferramentas/gpx_para_rota.py rotas/arquivo.gpx rotas/arquivo.json "Nome do percurso" [inclinacao_max]
+
+Com `inclinacao_max` (ex.: 14), os picos acima disso são aparados e a altitude que
+sobra vai para os trechos vizinhos, então a subida total e a altitude final não mudam.
 """
 import bisect
 import json
@@ -20,7 +23,31 @@ def distancia(a, b):
     return 2 * r * math.asin(math.sqrt(h))
 
 
-def converter(caminho_gpx, nome):
+def limitar(trechos, maximo):
+    """Apara inclinações acima de `maximo` (em módulo) e passa a altitude
+    excedente para os trechos mais próximos que ainda têm folga."""
+    trechos = [list(t) for t in trechos]
+    for i, (m, inc) in enumerate(trechos):
+        if abs(inc) <= maximo:
+            continue
+        sinal = 1 if inc > 0 else -1
+        sobra = m * (abs(inc) - maximo) / 100  # metros de altitude a redistribuir
+        trechos[i][1] = sinal * maximo
+        dist = 1
+        while sobra > 1e-6 and (i - dist >= 0 or i + dist < len(trechos)):
+            for j in (i + dist, i - dist):
+                if 0 <= j < len(trechos) and sobra > 1e-6:
+                    mj, incj = trechos[j]
+                    folga = mj * (maximo - sinal * incj) / 100
+                    if folga > 0:
+                        usa = min(folga, sobra)
+                        trechos[j][1] = incj + sinal * usa / mj * 100
+                        sobra -= usa
+            dist += 1
+    return trechos
+
+
+def converter(caminho_gpx, nome, inc_max=None):
     ns = {'g': 'http://www.topografix.com/GPX/1/1'}
     raiz = ET.parse(caminho_gpx).getroot()
     pts = [(float(p.get('lat')), float(p.get('lon')), float(p.find('g:ele', ns).text))
@@ -49,13 +76,16 @@ def converter(caminho_gpx, nome):
     trechos = []
     for i in range(1, len(xs)):
         m = xs[i] - xs[i - 1]
-        inc = (suave[i] - suave[i - 1]) / m * 100 if m else 0
-        trechos.append([round(m, 1), round(max(-INC_MAX, min(INC_MAX, inc)), 1) + 0.0])  # + 0.0 evita "-0"
+        trechos.append([m, (suave[i] - suave[i - 1]) / m * 100 if m else 0])
+    if inc_max:
+        trechos = limitar(trechos, inc_max)
+    trechos = [[round(m, 1), round(max(-INC_MAX, min(INC_MAX, inc)), 1) + 0.0]  # + 0.0 evita "-0"
+               for m, inc in trechos]
     return {'nome': nome, 'distancia_m': round(total), 'elevacao_inicial': round(suave[0], 1), 'trechos': trechos}
 
 
 if __name__ == '__main__':
-    rota = converter(sys.argv[1], sys.argv[3])
+    rota = converter(sys.argv[1], sys.argv[3], float(sys.argv[4]) if len(sys.argv) > 4 else None)
     with open(sys.argv[2], 'w', encoding='utf-8') as f:
         json.dump(rota, f, ensure_ascii=False, separators=(',', ':'))
     subida = sum(max(0, m * i / 100) for m, i in rota['trechos'])
