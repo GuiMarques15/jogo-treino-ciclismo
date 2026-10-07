@@ -43,6 +43,11 @@
   #resumo table { width:100%; border-collapse:collapse; font-size:14px; margin-bottom:12px; }
   #resumo td { padding:6px 0; border-bottom:1px solid var(--line); }
   #resumo td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .ativ { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .ativ:last-child { border-bottom:0; }
+  .ativ .txt { flex:1 1 220px; font-size:14px; }
+  .ativ .txt small { display:block; color:var(--quiet); }
+  .ativ button { padding:7px 10px; font-size:14px; }
 </style>
 </head>
 <body>
@@ -105,6 +110,12 @@
   </div>
 
   <div class="card">
+    <h2>Percursos salvos</h2>
+    <p class="info">Cada percurso fica salvo neste aparelho, neste navegador, com uma linha por segundo pedalado.</p>
+    <div id="listaAtiv"></div>
+  </div>
+
+  <div class="card">
     <h2>Modo ERG (potência alvo)</h2>
     <div class="row">
       <input type="number" id="inWatts" value="150" min="0" max="1500" step="5">
@@ -129,6 +140,7 @@
 
 <!-- MONTAR: src/ftms.js -->
 <!-- MONTAR: src/percurso.js -->
+<!-- MONTAR: src/historico.js -->
 <!-- MONTAR: rotas -->
 <script>
 const $ = id => document.getElementById(id);
@@ -247,7 +259,7 @@ const MASSA_BIKE = 8;
 const rota = {
   versao: null, fator: 1, estado: 'parado', // parado | rodando | pausado | fim
   dist: 0, vel: 0, seg: 0, subida: 0, somaPot: 0, amostras: [],
-  incEnviada: null, ultimoEnvio: 0, timer: null, trainer: false,
+  incEnviada: null, ultimoEnvio: 0, timer: null, trainer: false, atividade: null,
 };
 
 const fmtKm = m => (m / 1000).toFixed(1).replace('.', ',');
@@ -306,13 +318,21 @@ function atualizarBotoes() {
 }
 
 function zerar() {
-  Object.assign(rota, { dist: 0, vel: 0, seg: 0, subida: 0, somaPot: 0, amostras: [], incEnviada: null });
+  Object.assign(rota, { dist: 0, vel: 0, seg: 0, subida: 0, somaPot: 0, amostras: [], incEnviada: null, atividade: null });
   $('resumo').style.display = 'none';
 }
 
 function iniciar() {
   const retomando = rota.estado === 'pausado';
-  if (!retomando) zerar();
+  if (!retomando) {
+    zerar();
+    // A atividade é criada antes do primeiro segundo; os segundos que chegarem
+    // antes do id ficar pronto esperam na mesma promessa.
+    rota.atividade = Historico.criarAtividade({
+      inicio: new Date().toISOString(), rota: rota.versao.nome, versao_pct: Math.round(rota.fator * 100),
+      distancia_total_m: Math.round(rota.versao.distancia), peso_kg: Number($('inPeso').value || 75),
+    }).catch(e => { log('não foi possível salvar o percurso: ' + e.message); return null; });
+  }
   rota.estado = 'rodando';
   rota.timer = setInterval(passo, 1000);
   log(`percurso ${retomando ? 'retomado' : 'iniciado'}: ${rota.versao.nome} (${Math.round(rota.fator * 100)}%)`);
@@ -333,6 +353,10 @@ function encerrar() {
   if (controlPoint) send(FTMS.cmdSimulation({ gradePct: 0 }), 'inclinação 0% (fim do percurso)');
   mostrarResumo();
   atualizarBotoes();
+  const linhas = rota.amostras;
+  rota.atividade?.then(id => id && Historico.atualizarAtividade(id, {
+    fim: new Date().toISOString(), concluida: true, ...Historico.resumir(linhas),
+  })).then(listarAtividades).catch(e => log('falha ao salvar o resumo: ' + e.message));
 }
 
 // Um segundo de percurso: potência vira velocidade pela física, a distância
@@ -347,8 +371,15 @@ function passo(primeiro) {
     rota.somaPot += ultimo.potencia;
     const depois = Percurso.posicao(v, rota.dist);
     rota.subida += Math.max(0, depois.alt - antes.alt);
-    rota.amostras.push([rota.seg, ultimo.potencia, Math.round(ultimo.cadencia), ultimo.fc ?? '',
-      (rota.vel * 3.6).toFixed(1), Math.round(rota.dist), depois.inc, depois.alt.toFixed(1)]);
+    const linha = {
+      segundo: rota.seg, hora: new Date().toISOString(), potencia_w: ultimo.potencia,
+      cadencia_rpm: Math.round(ultimo.cadencia), fc_bpm: ultimo.fc ?? null,
+      velocidade_kmh: Math.round(rota.vel * 36) / 10, distancia_m: Math.round(rota.dist),
+      inclinacao_pct: depois.inc, altitude_m: Math.round(depois.alt * 10) / 10,
+    };
+    rota.amostras.push(linha);
+    rota.atividade?.then(id => id && Historico.gravarSegundo(id, linha))
+      .catch(e => log('falha ao gravar o segundo ' + linha.segundo + ': ' + e.message));
   }
   const p = Percurso.posicao(v, rota.dist);
   const agora = Date.now();
@@ -371,14 +402,14 @@ function passo(primeiro) {
 
 function mostrarResumo() {
   const a = rota.amostras, n = a.length || 1;
-  const fcs = a.map(x => x[3]).filter(x => x !== '');
+  const fcs = a.map(x => x.fc_bpm).filter(x => x !== null);
   const linhas = [
     ['Percurso', `${rota.versao.nome} (${Math.round(rota.fator * 100)}%)`],
     ['Distância', `${fmtKm(rota.dist)} de ${fmtKm(rota.versao.distancia)} km`],
     ['Tempo', fmtTempo(rota.seg)],
     ['Velocidade média', rota.seg ? `${(rota.dist / rota.seg * 3.6).toFixed(1).replace('.', ',')} km/h` : '--'],
     ['Potência média', `${Math.round(rota.somaPot / n)} W`],
-    ['Potência máxima', `${Math.max(0, ...a.map(x => x[1]))} W`],
+    ['Potência máxima', `${Math.max(0, ...a.map(x => x.potencia_w))} W`],
     ['Frequência cardíaca média', fcs.length ? `${Math.round(fcs.reduce((s, x) => s + x, 0) / fcs.length)} bpm` : 'sem cardíaco'],
     ['Subida feita', `${Math.round(rota.subida)} m`],
   ];
@@ -386,13 +417,44 @@ function mostrarResumo() {
   $('resumo').style.display = 'block';
 }
 
-function baixarCsv() {
-  const cab = 'segundo,potencia_w,cadencia_rpm,fc_bpm,velocidade_kmh,distancia_m,inclinacao_pct,altitude_m';
-  const csv = [cab, ...rota.amostras.map(x => x.join(','))].join('\n');
+function salvarCsv(linhas, inicio) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  a.download = `percurso-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`;
+  a.href = URL.createObjectURL(new Blob([Historico.paraCsv(linhas)], { type: 'text/csv' }));
+  a.download = `percurso-${inicio.slice(0, 16).replace(/[:T]/g, '-')}.csv`;
   a.click();
+}
+const baixarCsv = () => salvarCsv(rota.amostras, rota.amostras[0]?.hora || new Date().toISOString());
+
+// Lista dos percursos salvos no aparelho, do mais recente para o mais antigo.
+async function listarAtividades() {
+  let lista;
+  try { lista = await Historico.listarAtividades(); }
+  catch (e) { $('listaAtiv').textContent = 'Este navegador não permite salvar dados: ' + e.message; return; }
+  if (!lista.length) { $('listaAtiv').innerHTML = '<p class="info">Nenhum percurso salvo ainda.</p>'; return; }
+  const box = $('listaAtiv');
+  box.innerHTML = '';
+  for (const at of lista) {
+    const quando = new Date(at.inicio).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    const detalhe = at.concluida
+      ? `${fmtKm(at.distancia_m)} de ${fmtKm(at.distancia_total_m)} km · ${fmtTempo(at.tempo_s)} · ${at.potencia_media_w} W médios` +
+        (at.fc_media_bpm ? ` · ${at.fc_media_bpm} bpm` : '')
+      : 'não encerrado (a página fechou ou o percurso foi trocado no meio)';
+    const el = document.createElement('div');
+    el.className = 'ativ';
+    el.innerHTML = `<div class="txt">${at.rota} (${at.versao_pct}%) · ${quando}<small>${detalhe}</small></div>`;
+    const bCsv = document.createElement('button');
+    bCsv.textContent = 'Baixar CSV';
+    bCsv.onclick = async () => salvarCsv(await Historico.lerSegundos(at.id), at.inicio);
+    const bDel = document.createElement('button');
+    bDel.textContent = 'Apagar';
+    bDel.onclick = async () => {
+      if (!confirm('Apagar este percurso salvo?')) return;
+      await Historico.apagarAtividade(at.id);
+      listarAtividades();
+    };
+    el.append(bCsv, bDel);
+    box.append(el);
+  }
 }
 
 for (const b of $('segVersao').children) {
@@ -412,6 +474,7 @@ $('btnEncerrar').onclick = encerrar;
 $('btnBaixar').onclick = baixarCsv;
 escolherVersao();
 atualizarBotoes();
+listarAtividades();
 </script>
 </body>
 </html>

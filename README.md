@@ -10,6 +10,7 @@ Repositório do app de ciclismo: jogo single player de treino para smart trainer
 | `src/pagina.html` | Modelo da página (HTML, estilo e lógica da tela). |
 | `src/ftms.js` | Leitura e comandos do FTMS e do monitor cardíaco. |
 | `src/percurso.js` | Versões reduzidas do percurso, posição no percurso e física (potência vira velocidade). |
+| `src/historico.js` | Banco de dados local (IndexedDB) dos percursos feitos: uma linha por segundo. |
 | `rotas/` | Percursos: o GPX original e o `.json` convertido (trechos de 100 m com inclinação). |
 | `ferramentas/` | `gpx_para_rota.py` converte GPX em percurso; `montar.py` gera o `index.html`. |
 | `treinos/` | Modelo de tabela para os treinos pré-desenvolvidos e explicação das colunas. |
@@ -23,6 +24,15 @@ Abra o link do GitHub Pages do repositório:
 - iPhone: app Bluefy (o Safari não tem Bluetooth web).
 
 Toque em "Conectar trainer", escolha o rolo e use os botões de ERG e inclinação.
+
+## Percursos salvos
+
+Cada percurso iniciado é salvo no próprio aparelho (IndexedDB do navegador), segundo a segundo, enquanto você pedala. Se a página fechar no meio, o que já foi pedalado continua salvo.
+
+- Tabela `atividades`: uma linha por percurso (início, fim, percurso, versão, peso, distância, tempo, subida, potência média e máxima, FC média).
+- Tabela `segundos`: uma linha por segundo (`segundo, hora, potencia_w, cadencia_rpm, fc_bpm, velocidade_kmh, distancia_m, inclinacao_pct, altitude_m`).
+
+O cartão "Percursos salvos" lista tudo e permite baixar o CSV ou apagar. Os dados ficam só naquele aparelho e naquele navegador; limpar os dados do site apaga o histórico.
 
 ## Como adicionar um percurso
 

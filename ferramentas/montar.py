@@ -9,7 +9,7 @@ import pathlib
 raiz = pathlib.Path(__file__).resolve().parent.parent
 pagina = (raiz / 'src/pagina.html').read_text(encoding='utf-8')
 
-for nome in ('ftms.js', 'percurso.js'):
+for nome in ('ftms.js', 'percurso.js', 'historico.js'):
     codigo = (raiz / 'src' / nome).read_text(encoding='utf-8')
     pagina = pagina.replace(f'<!-- MONTAR: src/{nome} -->', f'<script>\n// Gerado de src/{nome} por ferramentas/montar.py\n{codigo}</script>')
 

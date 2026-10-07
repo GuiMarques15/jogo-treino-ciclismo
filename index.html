@@ -43,6 +43,11 @@
   #resumo table { width:100%; border-collapse:collapse; font-size:14px; margin-bottom:12px; }
   #resumo td { padding:6px 0; border-bottom:1px solid var(--line); }
   #resumo td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .ativ { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .ativ:last-child { border-bottom:0; }
+  .ativ .txt { flex:1 1 220px; font-size:14px; }
+  .ativ .txt small { display:block; color:var(--quiet); }
+  .ativ button { padding:7px 10px; font-size:14px; }
 </style>
 </head>
 <body>
@@ -102,6 +107,12 @@
       <table id="tabResumo"></table>
       <button id="btnBaixar">Baixar dados (CSV)</button>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Percursos salvos</h2>
+    <p class="info">Cada percurso fica salvo neste aparelho, neste navegador, com uma linha por segundo pedalado.</p>
+    <div id="listaAtiv"></div>
   </div>
 
   <div class="card">
@@ -303,6 +314,100 @@
 })(this);
 </script>
 <script>
+// Gerado de src/historico.js por ferramentas/montar.py
+// Banco de dados local (IndexedDB) com os percursos feitos. Cada percurso é uma
+// atividade, e cada segundo pedalado é uma linha na tabela `segundos`, gravada
+// na hora, então fechar a página no meio não perde o que já foi pedalado.
+(function (root) {
+  const NOME = 'treino-no-rolo', VERSAO = 1;
+  const COLUNAS = ['segundo', 'hora', 'potencia_w', 'cadencia_rpm', 'fc_bpm', 'velocidade_kmh',
+    'distancia_m', 'inclinacao_pct', 'altitude_m'];
+  let banco = null;
+
+  function abrir() {
+    if (banco) return banco;
+    banco = new Promise((ok, erro) => {
+      const req = indexedDB.open(NOME, VERSAO);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        db.createObjectStore('atividades', { keyPath: 'id', autoIncrement: true });
+        db.createObjectStore('segundos', { keyPath: ['atividade', 'segundo'] });
+      };
+      req.onsuccess = () => ok(req.result);
+      req.onerror = () => erro(req.error);
+    });
+    // Pede ao navegador para não apagar os dados quando faltar espaço.
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    return banco;
+  }
+
+  async function tx(lojas, modo, fn) {
+    const db = await abrir();
+    return new Promise((ok, erro) => {
+      const t = db.transaction(lojas, modo);
+      const r = fn(t);
+      t.oncomplete = () => ok(r && 'result' in r ? r.result : r);
+      t.onerror = () => erro(t.error);
+      t.onabort = () => erro(t.error);
+    });
+  }
+
+  // Cria a atividade e devolve o id dela.
+  const criarAtividade = dados =>
+    tx('atividades', 'readwrite', t => t.objectStore('atividades').add({ ...dados, concluida: false }));
+
+  const atualizarAtividade = (id, dados) =>
+    tx('atividades', 'readwrite', t => {
+      const loja = t.objectStore('atividades');
+      const req = loja.get(id);
+      req.onsuccess = () => loja.put({ ...req.result, ...dados });
+    });
+
+  const gravarSegundo = (atividade, linha) =>
+    tx('segundos', 'readwrite', t => t.objectStore('segundos').put({ atividade, ...linha }));
+
+  const listarAtividades = () =>
+    tx('atividades', 'readonly', t => t.objectStore('atividades').getAll())
+      .then(lista => lista.sort((a, b) => b.id - a.id));
+
+  const lerSegundos = atividade =>
+    tx('segundos', 'readonly', t => t.objectStore('segundos')
+      .getAll(IDBKeyRange.bound([atividade, -Infinity], [atividade, Infinity])));
+
+  const apagarAtividade = atividade =>
+    tx(['atividades', 'segundos'], 'readwrite', t => {
+      t.objectStore('atividades').delete(atividade);
+      t.objectStore('segundos').delete(IDBKeyRange.bound([atividade, -Infinity], [atividade, Infinity]));
+    });
+
+  // Uma linha por segundo, separada por vírgula, com cabeçalho.
+  const paraCsv = linhas =>
+    [COLUNAS.join(','), ...linhas.map(l => COLUNAS.map(c => l[c] ?? '').join(','))].join('\n');
+
+  // Resumo calculado a partir das linhas gravadas (serve também para
+  // atividades interrompidas, que não chegaram a ser encerradas).
+  function resumir(linhas) {
+    const n = linhas.length, ult = linhas[n - 1] || {};
+    const fcs = linhas.map(l => l.fc_bpm).filter(x => typeof x === 'number');
+    let subida = 0;
+    for (let i = 1; i < n; i++) subida += Math.max(0, linhas[i].altitude_m - linhas[i - 1].altitude_m);
+    return {
+      tempo_s: ult.segundo || 0,
+      distancia_m: ult.distancia_m || 0,
+      subida_m: Math.round(subida),
+      potencia_media_w: n ? Math.round(linhas.reduce((s, l) => s + l.potencia_w, 0) / n) : 0,
+      potencia_max_w: Math.max(0, ...linhas.map(l => l.potencia_w)),
+      fc_media_bpm: fcs.length ? Math.round(fcs.reduce((s, x) => s + x, 0) / fcs.length) : null,
+    };
+  }
+
+  const api = { COLUNAS, criarAtividade, atualizarAtividade, gravarSegundo, listarAtividades,
+    lerSegundos, apagarAtividade, paraCsv, resumir };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.Historico = api;
+})(this);
+</script>
+<script>
 // Gerado de rotas/*.json por ferramentas/montar.py
 const ROTAS = [{"nome":"Parque Estadual Carlos Botelho","distancia_m":77874,"elevacao_inicial":30.8,"trechos":[[100,2.0],[100,4.1],[100,4.9],[100,4.1],[100,1.5],[100,-0.1],[100,-1.4],[100,-1.2],[100,-0.9],[100,-0.8],[100,-1.4],[100,-2.0],[100,-2.2],[100,-1.8],[100,-0.5],[100,0.6],[100,1.8],[100,2.1],[100,1.9],[100,1.3],[100,0.7],[100,0.6],[100,1.5],[100,2.6],[100,4.8],[100,5.9],[100,6.3],[100,5.6],[100,1.8],[100,-1.7],[100,-5.2],[100,-5.7],[100,-4.5],[100,-2.9],[100,-1.2],[100,-1.0],[100,-0.9],[100,-0.7],[100,0.9],[100,2.4],[100,4.0],[100,3.8],[100,3.2],[100,1.9],[100,1.1],[100,0.7],[100,1.4],[100,2.1],[100,2.7],[100,3.0],[100,3.3],[100,3.8],[100,5.2],[100,6.7],[100,7.7],[100,7.4],[100,5.5],[100,3.4],[100,1.5],[100,0.7],[100,-1.9],[100,-5.0],[100,-8.8],[100,-10.6],[100,-10.7],[100,-9.8],[100,-8.8],[100,-8.9],[100,-8.0],[100,-6.8],[100,-5.4],[100,-4.9],[100,-3.5],[100,-2.0],[100,0.0],[100,1.3],[100,2.4],[100,3.1],[100,1.8],[100,0.4],[100,-1.2],[100,-1.1],[100,-0.8],[100,-0.6],[100,-0.8],[100,-1.5],[100,-2.3],[100,-2.6],[100,-1.8],[100,-0.9],[100,0.2],[100,0.5],[100,0.7],[100,0.7],[100,0.7],[100,0.6],[100,0.8],[100,1.0],[100,0.2],[100,-0.8],[100,-1.4],[100,-0.9],[100,0.3],[100,1.0],[100,1.0],[100,0.4],[100,-0.3],[100,-0.4],[100,-0.6],[100,-0.7],[100,-0.1],[100,0.9],[100,1.7],[100,1.1],[100,0.2],[100,-0.9],[100,-0.9],[100,-0.7],[100,-0.1],[100,-0.1],[100,-0.1],[100,-0.2],[100,-0.8],[100,-1.4],[100,-1.5],[100,-0.9],[100,-0.3],[100,-0.1],[100,-0.5],[100,-0.8],[100,-0.9],[100,-0.6],[100,-0.3],[100,-0.1],[100,0.1],[100,0.4],[100,0.5],[100,0.7],[100,0.9],[100,1.0],[100,1.0],[100,0.9],[100,0.8],[100,0.7],[100,0.6],[100,0.6],[100,0.3],[100,0.0],[100,-0.4],[100,-0.6],[100,-0.3],[100,0.1],[100,0.8],[100,1.4],[100,2.0],[100,2.4],[100,2.1],[100,1.6],[100,0.6],[100,-0.1],[100,-0.6],[100,-0.6],[100,-0.5],[100,-0.3],[100,-0.2],[100,-0.3],[100,-0.3],[100,-0.3],[100,-0.4],[100,-0.7],[100,-0.7],[100,-0.5],[100,-0.2],[100,-0.2],[100,-0.2],[100,-0.2],[100,-0.2],[100,0.0],[100,0.6],[100,1.2],[100,0.9],[100,0.2],[100,-0.3],[100,-0.1],[100,0.0],[100,0.1],[100,0.5],[100,1.1],[100,2.0],[100,2.7],[100,4.3],[100,5.5],[100,5.1],[100,3.5],[100,0.2],[100,-2.5],[100,-4.9],[100,-5.4],[100,-4.7],[100,-3.4],[100,-1.6],[100,-0.1],[100,0.6],[100,0.4],[100,0.6],[100,1.3],[100,3.0],[100,4.5],[100,5.8],[100,5.6],[100,3.6],[100,1.1],[100,-1.7],[100,-3.0],[100,-3.7],[100,-3.5],[100,-2.5],[100,-1.4],[100,0.1],[100,0.8],[100,-0.1],[100,-1.4],[100,-1.8],[100,-0.9],[100,0.9],[100,1.7],[100,2.3],[100,2.2],[100,2.3],[100,2.7],[100,4.3],[100,5.6],[100,6.8],[100,6.5],[100,4.5],[100,2.6],[100,3.0],[100,5.2],[100,8.3],[100,9.1],[100,6.4],[100,2.4],[100,-1.5],[100,-2.1],[100,-1.3],[100,-0.3],[100,-0.5],[100,-1.8],[100,-3.0],[100,-3.0],[100,-1.4],[100,0.2],[100,0.0],[100,-1.9],[100,-2.7],[100,-1.8],[100,0.1],[100,1.2],[100,4.3],[100,6.8],[100,9.7],[100,10.3],[100,9.0],[100,7.0],[100,3.9],[100,2.6],[100,3.1],[100,4.9],[100,7.1],[100,7.7],[100,7.6],[100,7.2],[100,6.7],[100,6.7],[100,6.8],[100,6.9],[100,7.0],[100,7.1],[100,7.4],[100,7.6],[100,6.2],[100,4.6],[100,2.1],[100,1.2],[100,2.5],[100,4.7],[100,6.4],[100,6.1],[100,6.8],[100,7.9],[100,7.8],[100,6.4],[100,4.6],[100,3.9],[100,5.2],[100,7.2],[100,7.3],[100,5.7],[100,3.8],[100,3.7],[100,3.5],[100,3.6],[100,4.2],[100,5.1],[100,6.6],[100,7.7],[100,7.9],[100,7.3],[100,7.0],[100,7.0],[100,5.2],[100,3.0],[100,2.3],[100,3.7],[100,4.8],[100,4.6],[100,4.9],[100,5.9],[100,6.7],[100,6.9],[100,6.7],[100,6.2],[100,6.5],[100,7.1],[100,8.6],[100,9.8],[100,11.1],[100,11.6],[100,9.4],[100,6.7],[100,3.2],[100,2.4],[100,2.9],[100,4.3],[100,5.8],[100,5.9],[100,5.4],[100,4.3],[100,2.4],[100,0.9],[100,-0.3],[100,-0.3],[100,-1.6],[100,-2.9],[100,-3.5],[100,-2.9],[100,-0.8],[100,0.7],[100,2.3],[100,2.5],[100,2.7],[100,2.8],[100,3.2],[100,3.6],[100,4.7],[100,5.4],[100,5.8],[100,5.3],[100,3.0],[100,1.3],[100,0.3],[100,1.6],[100,4.1],[100,6.1],[100,6.5],[100,5.3],[100,2.9],[100,1.6],[100,0.0],[100,-1.1],[100,-3.3],[100,-5.2],[100,-5.7],[100,-4.6],[100,-1.7],[100,0.8],[100,3.1],[100,4.3],[100,6.9],[100,9.6],[100,12.3],[100,13.2],[100,10.6],[100,7.3],[100,3.2],[100,1.9],[100,0.1],[100,-0.5],[100,0.7],[100,2.9],[100,7.0],[100,9.3],[100,9.1],[100,6.7],[100,2.6],[100,0.7],[100,-0.3],[100,0.5],[100,1.4],[100,1.6],[100,1.6],[100,1.5],[100,1.5],[100,1.5],[100,1.4],[100,1.4],[100,2.2],[100,3.3],[100,4.5],[100,5.1],[100,6.2],[100,7.1],[100,7.2],[100,6.5],[100,5.7],[100,5.3],[100,4.6],[100,3.7],[100,-0.5],[100,-4.2],[100,-6.8],[100,-5.7],[100,-3.2],[100,-1.3],[100,-0.3],[100,-0.7],[100,-0.6],[100,-0.1],[100,0.1],[100,-0.2],[100,-0.1],[100,0.4],[100,2.6],[100,4.4],[100,5.6],[100,5.0],[100,4.3],[100,4.1],[100,5.2],[100,6.4],[100,6.2],[100,4.7],[100,0.9],[100,-1.6],[100,-3.9],[100,-4.0],[100,-3.4],[100,-2.7],[100,-1.5],[100,-0.9],[100,-1.7],[100,-3.5],[100,-6.8],[100,-8.7],[100,-9.1],[100,-7.3],[100,-5.4],[100,-4.0],[100,-2.6],[100,-1.2],[100,0.1],[100,1.1],[100,1.8],[100,2.1],[100,0.7],[100,-0.8],[100,-2.2],[100,-2.4],[100,-0.1],[100,2.2],[100,4.5],[100,4.3],[100,2.7],[100,0.8],[100,-1.3],[100,-2.1],[100,-3.0],[100,-3.5],[100,-4.3],[100,-4.6],[100,-4.3],[100,-2.9],[100,0.3],[100,3.7],[100,5.9],[100,6.3],[100,3.0],[100,0.0],[100,-1.0],[100,1.0],[100,5.4],[100,8.1],[100,10.7],[100,10.7],[100,8.9],[100,6.8],[100,2.8],[100,0.5],[100,-0.1],[100,1.4],[100,2.6],[100,2.1],[100,-0.4],[100,-2.8],[100,-4.6],[100,-4.2],[100,-1.9],[100,0.0],[100,0.5],[100,-1.0],[100,-2.4],[100,-2.5],[100,-1.5],[100,-0.6],[100,-1.9],[100,-4.2],[100,-6.7],[100,-7.3],[100,-8.0],[100,-8.5],[100,-7.5],[100,-6.1],[100,-3.8],[100,-2.7],[100,-1.8],[100,-1.9],[100,-3.0],[100,-4.2],[100,-4.7],[100,-4.1],[100,-2.4],[100,-1.1],[100,-0.6],[100,-1.1],[100,-1.7],[100,-1.8],[100,-1.5],[100,-1.4],[100,-1.5],[100,-2.3],[100,-3.0],[100,-3.4],[100,-3.1],[100,-2.5],[100,-1.4],[100,-0.5],[100,0.6],[100,1.3],[100,2.0],[100,2.4],[100,2.4],[100,2.2],[100,2.0],[100,2.7],[100,4.0],[100,5.8],[100,6.7],[100,7.1],[100,6.2],[100,5.1],[100,4.0],[100,3.6],[100,3.4],[100,3.2],[100,2.9],[100,2.4],[100,1.3],[100,0.5],[100,-0.1],[100,0.2],[100,0.7],[100,1.0],[100,0.6],[100,-0.2],[100,-1.8],[100,-3.0],[100,-4.0],[100,-3.9],[100,-3.7],[100,-2.9],[100,-1.7],[100,-0.2],[100,1.1],[100,1.7],[100,1.3],[100,0.6],[100,-0.3],[100,-0.6],[100,-0.3],[100,0.3],[100,0.9],[100,0.8],[100,0.1],[100,-0.9],[100,-2.0],[100,-2.6],[100,-2.9],[100,-3.0],[100,-3.2],[100,-3.3],[100,-2.4],[100,-1.0],[100,1.2],[100,2.8],[100,3.8],[100,3.9],[100,2.0],[100,0.1],[100,-2.3],[100,-2.9],[100,-2.9],[100,-2.2],[100,-0.6],[100,0.6],[100,1.9],[100,2.2],[100,1.2],[100,-0.3],[100,-2.3],[100,-3.5],[100,-4.0],[100,-4.1],[100,-3.6],[100,-3.1],[100,-2.5],[100,-2.1],[100,-2.6],[100,-3.6],[100,-4.7],[100,-5.2],[100,-5.2],[100,-5.2],[100,-5.2],[100,-5.4],[100,-5.6],[100,-5.7],[100,-4.9],[100,-3.8],[100,-2.0],[100,-1.0],[100,-0.7],[100,-1.2],[100,-1.6],[100,-1.4],[100,-1.0],[100,-0.7],[100,-0.3],[100,0.0],[100,0.1],[100,0.2],[100,0.6],[100,1.3],[100,2.3],[100,3.1],[100,3.5],[100,3.7],[100,4.3],[100,5.0],[100,5.5],[100,5.3],[100,4.8],[100,4.3],[100,2.7],[100,1.3],[100,0.1],[100,-0.1],[100,0.0],[100,0.5],[100,1.2],[100,1.6],[100,1.1],[100,0.3],[100,-0.5],[100,-0.8],[100,-0.6],[100,0.0],[100,0.3],[100,-0.3],[100,-1.2],[100,-2.3],[100,-2.9],[100,-3.2],[100,-2.2],[100,-1.0],[100,0.4],[100,0.8],[100,0.9],[100,0.8],[100,0.3],[100,-0.2],[100,-0.9],[100,-1.3],[100,-1.6],[100,-1.6],[100,-1.6],[100,-1.5],[100,-1.3],[100,-1.0],[100,-0.8],[100,-0.8],[100,-0.8],[100,-0.7],[100,-0.5],[100,-0.2],[100,0.2],[100,0.3],[100,0.4],[100,0.4],[100,0.4],[100,0.6],[100,0.9],[100,1.2],[100,1.4],[100,1.4],[100,0.9],[100,0.3],[100,-0.2],[100,-0.4],[100,-0.6],[100,-0.7],[100,-0.6],[100,-0.6],[100,-0.8],[100,-1.5],[100,-2.4],[100,-3.3],[100,-4.1],[100,-4.7],[100,-5.4],[100,-6.2],[100,-6.1],[100,-5.6],[100,-4.9],[100,-4.8],[100,-3.8],[100,-2.8],[100,-0.7],[100,0.7],[100,2.7],[100,3.8],[100,4.9],[100,5.1],[100,5.2],[100,5.0],[100,5.0],[100,5.3],[100,5.6],[100,5.8],[100,5.6],[100,5.3],[100,4.7],[100,4.2],[100,2.9],[100,2.0],[100,-0.3],[100,-1.9],[100,-3.3],[100,-3.2],[100,-1.9],[100,-0.4],[100,0.9],[100,1.0],[100,0.0],[100,-1.2],[100,-2.3],[100,-2.3],[100,-1.8],[100,-1.1],[100,-0.5],[100,-0.4],[100,-0.3],[100,-0.2],[100,-0.2],[100,-0.2],[100,-0.2],[100,-0.1],[100,-0.1],[100,0.0],[73.9,0.0]]}];
 </script>
@@ -423,7 +528,7 @@ const MASSA_BIKE = 8;
 const rota = {
   versao: null, fator: 1, estado: 'parado', // parado | rodando | pausado | fim
   dist: 0, vel: 0, seg: 0, subida: 0, somaPot: 0, amostras: [],
-  incEnviada: null, ultimoEnvio: 0, timer: null, trainer: false,
+  incEnviada: null, ultimoEnvio: 0, timer: null, trainer: false, atividade: null,
 };
 
 const fmtKm = m => (m / 1000).toFixed(1).replace('.', ',');
@@ -482,13 +587,21 @@ function atualizarBotoes() {
 }
 
 function zerar() {
-  Object.assign(rota, { dist: 0, vel: 0, seg: 0, subida: 0, somaPot: 0, amostras: [], incEnviada: null });
+  Object.assign(rota, { dist: 0, vel: 0, seg: 0, subida: 0, somaPot: 0, amostras: [], incEnviada: null, atividade: null });
   $('resumo').style.display = 'none';
 }
 
 function iniciar() {
   const retomando = rota.estado === 'pausado';
-  if (!retomando) zerar();
+  if (!retomando) {
+    zerar();
+    // A atividade é criada antes do primeiro segundo; os segundos que chegarem
+    // antes do id ficar pronto esperam na mesma promessa.
+    rota.atividade = Historico.criarAtividade({
+      inicio: new Date().toISOString(), rota: rota.versao.nome, versao_pct: Math.round(rota.fator * 100),
+      distancia_total_m: Math.round(rota.versao.distancia), peso_kg: Number($('inPeso').value || 75),
+    }).catch(e => { log('não foi possível salvar o percurso: ' + e.message); return null; });
+  }
   rota.estado = 'rodando';
   rota.timer = setInterval(passo, 1000);
   log(`percurso ${retomando ? 'retomado' : 'iniciado'}: ${rota.versao.nome} (${Math.round(rota.fator * 100)}%)`);
@@ -509,6 +622,10 @@ function encerrar() {
   if (controlPoint) send(FTMS.cmdSimulation({ gradePct: 0 }), 'inclinação 0% (fim do percurso)');
   mostrarResumo();
   atualizarBotoes();
+  const linhas = rota.amostras;
+  rota.atividade?.then(id => id && Historico.atualizarAtividade(id, {
+    fim: new Date().toISOString(), concluida: true, ...Historico.resumir(linhas),
+  })).then(listarAtividades).catch(e => log('falha ao salvar o resumo: ' + e.message));
 }
 
 // Um segundo de percurso: potência vira velocidade pela física, a distância
@@ -523,8 +640,15 @@ function passo(primeiro) {
     rota.somaPot += ultimo.potencia;
     const depois = Percurso.posicao(v, rota.dist);
     rota.subida += Math.max(0, depois.alt - antes.alt);
-    rota.amostras.push([rota.seg, ultimo.potencia, Math.round(ultimo.cadencia), ultimo.fc ?? '',
-      (rota.vel * 3.6).toFixed(1), Math.round(rota.dist), depois.inc, depois.alt.toFixed(1)]);
+    const linha = {
+      segundo: rota.seg, hora: new Date().toISOString(), potencia_w: ultimo.potencia,
+      cadencia_rpm: Math.round(ultimo.cadencia), fc_bpm: ultimo.fc ?? null,
+      velocidade_kmh: Math.round(rota.vel * 36) / 10, distancia_m: Math.round(rota.dist),
+      inclinacao_pct: depois.inc, altitude_m: Math.round(depois.alt * 10) / 10,
+    };
+    rota.amostras.push(linha);
+    rota.atividade?.then(id => id && Historico.gravarSegundo(id, linha))
+      .catch(e => log('falha ao gravar o segundo ' + linha.segundo + ': ' + e.message));
   }
   const p = Percurso.posicao(v, rota.dist);
   const agora = Date.now();
@@ -547,14 +671,14 @@ function passo(primeiro) {
 
 function mostrarResumo() {
   const a = rota.amostras, n = a.length || 1;
-  const fcs = a.map(x => x[3]).filter(x => x !== '');
+  const fcs = a.map(x => x.fc_bpm).filter(x => x !== null);
   const linhas = [
     ['Percurso', `${rota.versao.nome} (${Math.round(rota.fator * 100)}%)`],
     ['Distância', `${fmtKm(rota.dist)} de ${fmtKm(rota.versao.distancia)} km`],
     ['Tempo', fmtTempo(rota.seg)],
     ['Velocidade média', rota.seg ? `${(rota.dist / rota.seg * 3.6).toFixed(1).replace('.', ',')} km/h` : '--'],
     ['Potência média', `${Math.round(rota.somaPot / n)} W`],
-    ['Potência máxima', `${Math.max(0, ...a.map(x => x[1]))} W`],
+    ['Potência máxima', `${Math.max(0, ...a.map(x => x.potencia_w))} W`],
     ['Frequência cardíaca média', fcs.length ? `${Math.round(fcs.reduce((s, x) => s + x, 0) / fcs.length)} bpm` : 'sem cardíaco'],
     ['Subida feita', `${Math.round(rota.subida)} m`],
   ];
@@ -562,13 +686,44 @@ function mostrarResumo() {
   $('resumo').style.display = 'block';
 }
 
-function baixarCsv() {
-  const cab = 'segundo,potencia_w,cadencia_rpm,fc_bpm,velocidade_kmh,distancia_m,inclinacao_pct,altitude_m';
-  const csv = [cab, ...rota.amostras.map(x => x.join(','))].join('\n');
+function salvarCsv(linhas, inicio) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  a.download = `percurso-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`;
+  a.href = URL.createObjectURL(new Blob([Historico.paraCsv(linhas)], { type: 'text/csv' }));
+  a.download = `percurso-${inicio.slice(0, 16).replace(/[:T]/g, '-')}.csv`;
   a.click();
+}
+const baixarCsv = () => salvarCsv(rota.amostras, rota.amostras[0]?.hora || new Date().toISOString());
+
+// Lista dos percursos salvos no aparelho, do mais recente para o mais antigo.
+async function listarAtividades() {
+  let lista;
+  try { lista = await Historico.listarAtividades(); }
+  catch (e) { $('listaAtiv').textContent = 'Este navegador não permite salvar dados: ' + e.message; return; }
+  if (!lista.length) { $('listaAtiv').innerHTML = '<p class="info">Nenhum percurso salvo ainda.</p>'; return; }
+  const box = $('listaAtiv');
+  box.innerHTML = '';
+  for (const at of lista) {
+    const quando = new Date(at.inicio).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    const detalhe = at.concluida
+      ? `${fmtKm(at.distancia_m)} de ${fmtKm(at.distancia_total_m)} km · ${fmtTempo(at.tempo_s)} · ${at.potencia_media_w} W médios` +
+        (at.fc_media_bpm ? ` · ${at.fc_media_bpm} bpm` : '')
+      : 'não encerrado (a página fechou ou o percurso foi trocado no meio)';
+    const el = document.createElement('div');
+    el.className = 'ativ';
+    el.innerHTML = `<div class="txt">${at.rota} (${at.versao_pct}%) · ${quando}<small>${detalhe}</small></div>`;
+    const bCsv = document.createElement('button');
+    bCsv.textContent = 'Baixar CSV';
+    bCsv.onclick = async () => salvarCsv(await Historico.lerSegundos(at.id), at.inicio);
+    const bDel = document.createElement('button');
+    bDel.textContent = 'Apagar';
+    bDel.onclick = async () => {
+      if (!confirm('Apagar este percurso salvo?')) return;
+      await Historico.apagarAtividade(at.id);
+      listarAtividades();
+    };
+    el.append(bCsv, bDel);
+    box.append(el);
+  }
 }
 
 for (const b of $('segVersao').children) {
@@ -588,6 +743,7 @@ $('btnEncerrar').onclick = encerrar;
 $('btnBaixar').onclick = baixarCsv;
 escolherVersao();
 atualizarBotoes();
+listarAtividades();
 </script>
 </body>
 </html>
