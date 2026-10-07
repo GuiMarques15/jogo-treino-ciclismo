@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prova de conexão</title>
+<style>
+  :root { --bg:#f6f6f4; --card:#fff; --ink:#1d1d1b; --quiet:#6b6b66; --line:#dddcd6; --accent:#2563eb; --bad:#c2410c; --good:#15803d; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg:#161615; --card:#21211f; --ink:#ededea; --quiet:#a3a39d; --line:#36352f; --accent:#60a5fa; --bad:#fb923c; --good:#4ade80; }
+  }
+  :root[data-theme="dark"] { --bg:#161615; --card:#21211f; --ink:#ededea; --quiet:#a3a39d; --line:#36352f; --accent:#60a5fa; --bad:#fb923c; --good:#4ade80; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.4 system-ui, sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:8px 0 4px; }
+  p.sub { color:var(--quiet); margin:0 0 16px; font-size:14px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  button { font:inherit; padding:10px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.45; cursor:default; }
+  .grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:16px; }
+  @media (max-width:560px) { .grid { grid-template-columns:repeat(2, 1fr); } }
+  .metric { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .metric .v { font-size:34px; font-weight:650; font-variant-numeric:tabular-nums; }
+  .metric .l { color:var(--quiet); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+  .card h2 { font-size:15px; margin:0 0 8px; }
+  input[type=number] { font:inherit; width:96px; padding:9px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); }
+  .status { font-size:14px; color:var(--quiet); }
+  .status b.ok { color:var(--good); } .status b.no { color:var(--bad); }
+  #log { font:12px/1.5 ui-monospace, monospace; white-space:pre-wrap; max-height:220px; overflow:auto; color:var(--quiet); }
+  #unsupported { display:none; border-color:var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Prova de conexão: trainer e cardíaco</h1>
+  <p class="sub">Conecta via Bluetooth FTMS (Elite Suito-T e outros) e monitor cardíaco padrão (Xoss e outros).</p>
+
+  <div class="card" id="unsupported">
+    <h2>Este navegador não tem Web Bluetooth</h2>
+    Use Chrome ou Edge no PC, Chrome no Android, ou o app Bluefy no iPhone.
+  </div>
+
+  <div class="row">
+    <button class="primary" id="btnTrainer">Conectar trainer</button>
+    <button class="primary" id="btnHr">Conectar cardíaco</button>
+  </div>
+  <p class="status">Trainer: <b id="stTrainer" class="no">desconectado</b> · Cardíaco: <b id="stHr" class="no">desconectado</b></p>
+
+  <div class="grid">
+    <div class="metric"><div class="v" id="mPower">--</div><div class="l">Potência (W)</div></div>
+    <div class="metric"><div class="v" id="mCadence">--</div><div class="l">Cadência (rpm)</div></div>
+    <div class="metric"><div class="v" id="mSpeed">--</div><div class="l">Velocidade (km/h)</div></div>
+    <div class="metric"><div class="v" id="mHr">--</div><div class="l">Frequência cardíaca (bpm)</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Modo ERG (potência alvo)</h2>
+    <div class="row">
+      <input type="number" id="inWatts" value="150" min="0" max="1500" step="5">
+      <button id="btnErg" disabled>Aplicar watts</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Modo simulação (inclinação)</h2>
+    <div class="row">
+      <input type="number" id="inGrade" value="3" min="-10" max="20" step="0.5">
+      <button id="btnGrade" disabled>Aplicar inclinação %</button>
+      <button id="btnFlat" disabled>Plano (0%)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Registro</h2>
+    <div id="log"></div>
+  </div>
+</main>
+
+<!-- Cópia de ftms.js embutida para a página funcionar como arquivo único. -->
+<script>
+// Leitura e comandos do Bluetooth FTMS (Fitness Machine Service) e do
+// monitor cardíaco (Heart Rate Service). Funções puras, sem Web Bluetooth,
+// para poderem ser reaproveitadas no app final e testadas fora do navegador.
+(function (root) {
+  const UUID = {
+    ftmsService: 0x1826,
+    indoorBikeData: 0x2ad2,
+    controlPoint: 0x2ad9,
+    machineStatus: 0x2ada,
+    hrService: 0x180d,
+    hrMeasurement: 0x2a37,
+  };
+
+  const OP = {
+    requestControl: 0x00,
+    reset: 0x01,
+    setTargetPower: 0x05,
+    startOrResume: 0x07,
+    stopOrPause: 0x08,
+    setSimulation: 0x11,
+    response: 0x80,
+  };
+
+  const RESULT = {
+    0x01: 'sucesso',
+    0x02: 'comando não suportado',
+    0x03: 'parâmetro inválido',
+    0x04: 'falha na operação',
+    0x05: 'controle não permitido',
+  };
+
+  // Indoor Bike Data (0x2AD2). Os campos presentes dependem dos bits de flags,
+  // na ordem definida pela especificação FTMS v1.0.
+  function parseIndoorBikeData(view) {
+    const flags = view.getUint16(0, true);
+    let o = 2;
+    const out = {};
+    // Bit 0 ("More Data") invertido: 0 significa que a velocidade está presente.
+    if (!(flags & 0x0001)) { out.speedKmh = view.getUint16(o, true) / 100; o += 2; }
+    if (flags & 0x0002) { out.avgSpeedKmh = view.getUint16(o, true) / 100; o += 2; }
+    if (flags & 0x0004) { out.cadenceRpm = view.getUint16(o, true) / 2; o += 2; }
+    if (flags & 0x0008) { out.avgCadenceRpm = view.getUint16(o, true) / 2; o += 2; }
+    if (flags & 0x0010) {
+      out.distanceM = view.getUint16(o, true) | (view.getUint8(o + 2) << 16);
+      o += 3;
+    }
+    if (flags & 0x0020) { out.resistance = view.getInt16(o, true); o += 2; }
+    if (flags & 0x0040) { out.powerW = view.getInt16(o, true); o += 2; }
+    if (flags & 0x0080) { out.avgPowerW = view.getInt16(o, true); o += 2; }
+    if (flags & 0x0100) {
+      out.energyKcal = view.getUint16(o, true);
+      o += 5; // total (2) + por hora (2) + por minuto (1)
+    }
+    if (flags & 0x0200) { out.heartRate = view.getUint8(o); o += 1; }
+    if (flags & 0x0400) { o += 1; } // equivalente metabólico
+    if (flags & 0x0800) { out.elapsedS = view.getUint16(o, true); o += 2; }
+    if (flags & 0x1000) { out.remainingS = view.getUint16(o, true); o += 2; }
+    return out;
+  }
+
+  // Heart Rate Measurement (0x2A37): bit 0 das flags diz se o valor é 8 ou 16 bits.
+  function parseHeartRate(view) {
+    const flags = view.getUint8(0);
+    return flags & 0x01 ? view.getUint16(1, true) : view.getUint8(1);
+  }
+
+  // Resposta do Control Point: 0x80, opcode do pedido, código de resultado.
+  function parseControlPointResponse(view) {
+    if (view.byteLength < 3 || view.getUint8(0) !== OP.response) return null;
+    const code = view.getUint8(2);
+    return { requestOp: view.getUint8(1), code, ok: code === 0x01, text: RESULT[code] || `código ${code}` };
+  }
+
+  function cmdRequestControl() {
+    return new Uint8Array([OP.requestControl]);
+  }
+
+  function cmdStart() {
+    return new Uint8Array([OP.startOrResume]);
+  }
+
+  // Modo ERG: o trainer segura a potência alvo, independente da cadência.
+  function cmdTargetPower(watts) {
+    const b = new DataView(new ArrayBuffer(3));
+    b.setUint8(0, OP.setTargetPower);
+    b.setInt16(1, Math.round(watts), true);
+    return new Uint8Array(b.buffer);
+  }
+
+  // Modo simulação: inclinação em %, vento em m/s, resistência ao rolamento
+  // (crr) e coeficiente de arrasto (cw, kg/m) com valores típicos de estrada.
+  function cmdSimulation({ gradePct, windMs = 0, crr = 0.004, cw = 0.51 }) {
+    const b = new DataView(new ArrayBuffer(7));
+    b.setUint8(0, OP.setSimulation);
+    b.setInt16(1, Math.round(windMs * 1000), true);
+    b.setInt16(3, Math.round(gradePct * 100), true);
+    b.setUint8(5, Math.round(crr * 10000));
+    b.setUint8(6, Math.round(cw * 100));
+    return new Uint8Array(b.buffer);
+  }
+
+  const api = {
+    UUID, OP, parseIndoorBikeData, parseHeartRate, parseControlPointResponse,
+    cmdRequestControl, cmdStart, cmdTargetPower, cmdSimulation,
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.FTMS = api;
+})(this);
+</script>
+<script>
+const $ = id => document.getElementById(id);
+const log = msg => {
+  const t = new Date().toLocaleTimeString();
+  $('log').textContent = `${t}  ${msg}\n` + $('log').textContent;
+};
+const setStatus = (el, ok, text) => { el.textContent = text; el.className = ok ? 'ok' : 'no'; };
+
+if (!navigator.bluetooth) {
+  $('unsupported').style.display = 'block';
+  $('btnTrainer').disabled = $('btnHr').disabled = true;
+}
+
+let controlPoint = null;
+let pending = Promise.resolve();
+
+// Comandos ao Control Point vão em fila: o trainer só aceita um por vez.
+function send(bytes, label) {
+  pending = pending.then(async () => {
+    if (!controlPoint) return;
+    log(`enviando: ${label}`);
+    await controlPoint.writeValueWithResponse(bytes);
+    await new Promise(r => setTimeout(r, 150));
+  }).catch(e => log(`erro ao enviar ${label}: ${e.message}`));
+  return pending;
+}
+
+function setControls(on) {
+  for (const id of ['btnErg', 'btnGrade', 'btnFlat']) $(id).disabled = !on;
+}
+
+$('btnTrainer').onclick = async () => {
+  try {
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [FTMS.UUID.ftmsService] }],
+    });
+    log(`trainer escolhido: ${device.name || 'sem nome'}`);
+    device.addEventListener('gattserverdisconnected', () => {
+      controlPoint = null;
+      setControls(false);
+      setStatus($('stTrainer'), false, 'desconectado');
+      log('trainer desconectou');
+    });
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(FTMS.UUID.ftmsService);
+
+    const data = await svc.getCharacteristic(FTMS.UUID.indoorBikeData);
+    data.addEventListener('characteristicvaluechanged', e => {
+      const d = FTMS.parseIndoorBikeData(e.target.value);
+      if (d.powerW !== undefined) $('mPower').textContent = d.powerW;
+      if (d.cadenceRpm !== undefined) $('mCadence').textContent = Math.round(d.cadenceRpm);
+      if (d.speedKmh !== undefined) $('mSpeed').textContent = d.speedKmh.toFixed(1);
+    });
+    await data.startNotifications();
+
+    controlPoint = await svc.getCharacteristic(FTMS.UUID.controlPoint);
+    controlPoint.addEventListener('characteristicvaluechanged', e => {
+      const r = FTMS.parseControlPointResponse(e.target.value);
+      if (r) log(`resposta do trainer ao comando 0x${r.requestOp.toString(16)}: ${r.text}`);
+    });
+    // As respostas chegam por indicação; precisa ativar antes de escrever.
+    await controlPoint.startNotifications();
+
+    await send(FTMS.cmdRequestControl(), 'pedir controle');
+    await send(FTMS.cmdStart(), 'iniciar');
+
+    setStatus($('stTrainer'), true, device.name || 'conectado');
+    setControls(true);
+  } catch (e) {
+    log(`falha no trainer: ${e.message}`);
+  }
+};
+
+$('btnHr').onclick = async () => {
+  try {
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [FTMS.UUID.hrService] }],
+    });
+    log(`cardíaco escolhido: ${device.name || 'sem nome'}`);
+    device.addEventListener('gattserverdisconnected', () => {
+      setStatus($('stHr'), false, 'desconectado');
+      $('mHr').textContent = '--';
+      log('cardíaco desconectou');
+    });
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(FTMS.UUID.hrService);
+    const ch = await svc.getCharacteristic(FTMS.UUID.hrMeasurement);
+    ch.addEventListener('characteristicvaluechanged', e => {
+      $('mHr').textContent = FTMS.parseHeartRate(e.target.value);
+    });
+    await ch.startNotifications();
+    setStatus($('stHr'), true, device.name || 'conectado');
+  } catch (e) {
+    log(`falha no cardíaco: ${e.message}`);
+  }
+};
+
+$('btnErg').onclick = () => {
+  const w = Number($('inWatts').value);
+  send(FTMS.cmdTargetPower(w), `ERG ${w} W`);
+};
+$('btnGrade').onclick = () => {
+  const g = Number($('inGrade').value);
+  send(FTMS.cmdSimulation({ gradePct: g }), `inclinação ${g}%`);
+};
+$('btnFlat').onclick = () => send(FTMS.cmdSimulation({ gradePct: 0 }), 'inclinação 0%');
+</script>
+</body>
+</html>

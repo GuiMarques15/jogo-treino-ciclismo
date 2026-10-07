@@ -1,0 +1,5 @@
+treino,objetivo,nivel,ordem,serie,repeticoes_da_serie,duracao_mm_ss,tipo,alvo_inicio_pct_ftp,alvo_fim_pct_ftp,cadencia_rpm,texto
+Sweet spot 3x10,Limiar,Intermediario,1,,,10:00,rampa,50,75,,Aquecimento progressivo
+Sweet spot 3x10,Limiar,Intermediario,2,A,3,10:00,fixo,90,90,90,Ritmo forte e constante
+Sweet spot 3x10,Limiar,Intermediario,3,A,3,05:00,fixo,55,55,,Recuperacao
+Sweet spot 3x10,Limiar,Intermediario,4,,,05:00,rampa,60,40,,Desaquecimento
