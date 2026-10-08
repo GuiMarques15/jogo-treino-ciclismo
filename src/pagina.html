@@ -420,7 +420,9 @@ function mostrarResumo() {
 function salvarCsv(linhas, inicio) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([Historico.paraCsv(linhas)], { type: 'text/csv' }));
-  a.download = `percurso-${inicio.slice(0, 16).replace(/[:T]/g, '-')}.csv`;
+  // Nome com a hora local do início (a coluna `hora` segue em UTC).
+  const d = new Date(inicio), z = n => String(n).padStart(2, '0');
+  a.download = `percurso-${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}-${z(d.getHours())}-${z(d.getMinutes())}.csv`;
   a.click();
 }
 const baixarCsv = () => salvarCsv(rota.amostras, rota.amostras[0]?.hora || new Date().toISOString());
