@@ -1,20 +1,24 @@
-// Banco de dados local (IndexedDB) com os percursos feitos. Cada percurso é uma
+// Banco de dados local (IndexedDB). Cada percurso ou treino feito é uma
 // atividade, e cada segundo pedalado é uma linha na tabela `segundos`, gravada
 // na hora, então fechar a página no meio não perde o que já foi pedalado.
+// A tabela `treinos` guarda os treinos montados pela pessoa.
 (function (root) {
-  const NOME = 'treino-no-rolo', VERSAO = 1;
+  const NOME = 'treino-no-rolo', VERSAO = 2;
   const COLUNAS = ['segundo', 'hora', 'potencia_w', 'cadencia_rpm', 'fc_bpm', 'velocidade_kmh',
-    'distancia_m', 'inclinacao_pct', 'altitude_m'];
+    'distancia_m', 'inclinacao_pct', 'altitude_m', 'bloco', 'alvo_min_w', 'alvo_max_w'];
   let banco = null;
 
   function abrir() {
     if (banco) return banco;
     banco = new Promise((ok, erro) => {
       const req = indexedDB.open(NOME, VERSAO);
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = e => {
         const db = req.result;
-        db.createObjectStore('atividades', { keyPath: 'id', autoIncrement: true });
-        db.createObjectStore('segundos', { keyPath: ['atividade', 'segundo'] });
+        if (e.oldVersion < 1) {
+          db.createObjectStore('atividades', { keyPath: 'id', autoIncrement: true });
+          db.createObjectStore('segundos', { keyPath: ['atividade', 'segundo'] });
+        }
+        if (e.oldVersion < 2) db.createObjectStore('treinos', { keyPath: 'id', autoIncrement: true });
       };
       req.onsuccess = () => ok(req.result);
       req.onerror = () => erro(req.error);
@@ -63,6 +67,16 @@
       t.objectStore('segundos').delete(IDBKeyRange.bound([atividade, -Infinity], [atividade, Infinity]));
     });
 
+  // Treinos montados: { id, nome, blocos: [{ seg, min, max }], criado, alterado }.
+  const salvarTreino = treino =>
+    tx('treinos', 'readwrite', t => t.objectStore('treinos').put(treino));
+
+  const listarTreinos = () =>
+    tx('treinos', 'readonly', t => t.objectStore('treinos').getAll())
+      .then(lista => lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')));
+
+  const apagarTreino = id => tx('treinos', 'readwrite', t => t.objectStore('treinos').delete(id));
+
   // Uma linha por segundo, separada por vírgula, com cabeçalho.
   const paraCsv = linhas =>
     [COLUNAS.join(','), ...linhas.map(l => COLUNAS.map(c => l[c] ?? '').join(','))].join('\n');
@@ -73,7 +87,9 @@
     const n = linhas.length, ult = linhas[n - 1] || {};
     const fcs = linhas.map(l => l.fc_bpm).filter(x => typeof x === 'number');
     let subida = 0;
-    for (let i = 1; i < n; i++) subida += Math.max(0, linhas[i].altitude_m - linhas[i - 1].altitude_m);
+    for (let i = 1; i < n; i++) subida += Math.max(0, (linhas[i].altitude_m - linhas[i - 1].altitude_m) || 0);
+    const comAlvo = linhas.filter(l => typeof l.alvo_min_w === 'number');
+    const noAlvo = comAlvo.filter(l => l.potencia_w >= l.alvo_min_w && l.potencia_w <= l.alvo_max_w).length;
     return {
       tempo_s: ult.segundo || 0,
       distancia_m: ult.distancia_m || 0,
@@ -81,11 +97,12 @@
       potencia_media_w: n ? Math.round(linhas.reduce((s, l) => s + l.potencia_w, 0) / n) : 0,
       potencia_max_w: Math.max(0, ...linhas.map(l => l.potencia_w)),
       fc_media_bpm: fcs.length ? Math.round(fcs.reduce((s, x) => s + x, 0) / fcs.length) : null,
+      no_alvo_pct: comAlvo.length ? Math.round(noAlvo / comAlvo.length * 100) : null,
     };
   }
 
   const api = { COLUNAS, criarAtividade, atualizarAtividade, gravarSegundo, listarAtividades,
-    lerSegundos, apagarAtividade, paraCsv, resumir };
+    lerSegundos, apagarAtividade, salvarTreino, listarTreinos, apagarTreino, paraCsv, resumir };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Historico = api;
 })(this);

@@ -10,7 +10,8 @@ Repositório do app de ciclismo: jogo single player de treino para smart trainer
 | `src/pagina.html` | Modelo da página (HTML, estilo e lógica da tela). |
 | `src/ftms.js` | Leitura e comandos do FTMS e do monitor cardíaco. |
 | `src/percurso.js` | Versões reduzidas do percurso, posição no percurso e física (potência vira velocidade). |
-| `src/historico.js` | Banco de dados local (IndexedDB) dos percursos feitos: uma linha por segundo. |
+| `src/treino.js` | Treinos montados pela pessoa: blocos de duração e faixa de watts, bloco atual e alvo do ERG. |
+| `src/historico.js` | Banco de dados local (IndexedDB): treinos montados e atividades feitas, com uma linha por segundo. |
 | `rotas/` | Percursos: o GPX original e o `.json` convertido (trechos de 100 m com inclinação). |
 | `ferramentas/` | `gpx_para_rota.py` converte GPX em percurso; `montar.py` gera o `index.html`. |
 | `treinos/` | Modelo de tabela para os treinos pré-desenvolvidos e explicação das colunas. |
@@ -25,12 +26,19 @@ Abra o link do GitHub Pages do repositório:
 
 Toque em "Conectar trainer", escolha o rolo e use os botões de ERG e inclinação.
 
-## Percursos salvos
+## Meus treinos
 
-Cada percurso iniciado é salvo no próprio aparelho (IndexedDB do navegador), segundo a segundo, enquanto você pedala. Se a página fechar no meio, o que já foi pedalado continua salvo.
+No cartão "Meus treinos", toque em "Novo treino", dê um nome e monte os blocos: duração (`mm:ss`, ou só os minutos) e a faixa de watts (mínimo e máximo). O botão ⧉ duplica um bloco, o que ajuda a montar intervalos. O treino fica salvo no aparelho e aparece na lista para fazer, editar ou apagar.
 
-- Tabela `atividades`: uma linha por percurso (início, fim, percurso, versão, peso, distância, tempo, subida, potência média e máxima, FC média).
-- Tabela `segundos`: uma linha por segundo (`segundo, hora, potencia_w, cadencia_rpm, fc_bpm, velocidade_kmh, distancia_m, inclinacao_pct, altitude_m`).
+Ao fazer o treino, o rolo fica em ERG no meio da faixa de cada bloco. A tela mostra a faixa, quanto falta no bloco e no treino, e se a sua potência está dentro, abaixo ou acima da faixa. No fim, o rolo sai do ERG e o resumo mostra o tempo na faixa e a média de cada bloco.
+
+## Atividades salvas
+
+Cada percurso ou treino iniciado é salvo no próprio aparelho (IndexedDB do navegador), segundo a segundo, enquanto você pedala. Se a página fechar no meio, o que já foi pedalado continua salvo.
+
+- Tabela `treinos`: os treinos montados (nome e blocos com duração e faixa de watts).
+- Tabela `atividades`: uma linha por percurso ou treino feito (início, fim, nome, tempo, potência média e máxima, FC média; nos percursos também versão, peso, distância e subida; nos treinos o tempo na faixa).
+- Tabela `segundos`: uma linha por segundo (`segundo, hora, potencia_w, cadencia_rpm, fc_bpm, velocidade_kmh, distancia_m, inclinacao_pct, altitude_m, bloco, alvo_min_w, alvo_max_w`; as colunas que não se aplicam ficam vazias).
 
 O cartão "Percursos salvos" lista tudo e permite baixar o CSV ou apagar. Os dados ficam só naquele aparelho e naquele navegador; limpar os dados do site apaga o histórico.
 

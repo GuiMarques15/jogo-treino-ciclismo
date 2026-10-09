@@ -48,12 +48,28 @@
   .ativ .txt { flex:1 1 220px; font-size:14px; }
   .ativ .txt small { display:block; color:var(--quiet); }
   .ativ button { padding:7px 10px; font-size:14px; }
+  input[type=text] { font:inherit; padding:9px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); width:100%; }
+  .bl { display:grid; grid-template-columns:22px 1.1fr 1fr 1fr auto; gap:6px; align-items:center; margin-bottom:6px; }
+  .bl.cab { font-size:12px; color:var(--quiet); margin:12px 0 4px; }
+  .bl input[type=number], .bl input[type=text] { width:100%; min-width:0; padding:8px 6px; }
+  .bl .n { font-size:13px; color:var(--quiet); text-align:center; }
+  .bl .acoes { display:flex; gap:4px; }
+  .bl .acoes button { padding:7px 9px; font-size:14px; }
+  .grafico { width:100%; height:auto; display:block; margin:8px 0; }
+  .erro { color:var(--bad); font-size:14px; white-space:pre-line; margin:4px 0 8px; }
+  .faixa { font-weight:650; font-size:15px; margin:0 0 12px; }
+  .faixa.dentro { color:var(--good); } .faixa.fora { color:var(--bad); }
+  .metric.dentro .v { color:var(--good); } .metric.fora .v { color:var(--bad); }
+  #exResumo table { width:100%; border-collapse:collapse; font-size:14px; margin-bottom:12px; }
+  #exResumo td { padding:6px 0; border-bottom:1px solid var(--line); }
+  #exResumo td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
 <main>
   <h1>Treino no rolo</h1>
-  <p class="sub">Conecte o rolo (Bluetooth FTMS) e o cardíaco, escolha um percurso e pedale. O rolo segue as inclinações do percurso.</p>
+  <p class="sub">Conecte o rolo (Bluetooth FTMS) e o cardíaco. Faça um dos seus treinos em ERG ou escolha um percurso, e o rolo segue as inclinações.</p>
 
   <div class="card" id="unsupported">
     <h2>Este navegador não tem Web Bluetooth</h2>
@@ -71,6 +87,52 @@
     <div class="metric"><div class="v" id="mCadence">--</div><div class="l">Cadência (rpm)</div></div>
     <div class="metric"><div class="v" id="mSpeed">--</div><div class="l">Velocidade (km/h)</div></div>
     <div class="metric"><div class="v" id="mHr">--</div><div class="l">Frequência cardíaca (bpm)</div></div>
+  </div>
+
+  <div class="card" id="cardTreinos">
+    <h2>Meus treinos</h2>
+    <div id="listaTreinos"></div>
+    <div class="row"><button id="btnNovoTreino">Novo treino</button></div>
+
+    <div id="editor" hidden>
+      <h2 id="edTitulo">Novo treino</h2>
+      <label class="campo">Nome do treino <input type="text" id="edNome" maxlength="60" placeholder="Ex.: 4 x 8 min no limiar"></label>
+      <div class="bl cab"><span></span><span>Duração (mm:ss)</span><span>Watts mín.</span><span>Watts máx.</span><span></span></div>
+      <div id="edBlocos"></div>
+      <div class="row"><button id="edAdd">Adicionar bloco</button></div>
+      <svg id="edGrafico" class="grafico" viewBox="0 0 600 120" role="img" aria-label="Gráfico dos blocos do treino"></svg>
+      <p class="info" id="edTotal"></p>
+      <p class="erro" id="edErros"></p>
+      <div class="row"><button class="primary" id="edSalvar">Salvar treino</button><button id="edCancelar">Cancelar</button></div>
+    </div>
+
+    <div id="exec" hidden>
+      <h2 id="exNome"></h2>
+      <svg id="exGrafico" class="grafico" viewBox="0 0 600 120" role="img" aria-label="Blocos do treino e sua potência"></svg>
+      <div class="grid rota">
+        <div class="metric" id="exPotBox"><div class="v" id="exPot">--</div><div class="l">Sua potência (W)</div></div>
+        <div class="metric"><div class="v" id="exAlvo">--</div><div class="l">Faixa alvo (W)</div></div>
+        <div class="metric"><div class="v" id="exFaltaBloco">--</div><div class="l">Falta no bloco</div></div>
+        <div class="metric"><div class="v" id="exBloco">--</div><div class="l">Bloco</div></div>
+        <div class="metric"><div class="v" id="exTempo">0:00</div><div class="l">Tempo</div></div>
+        <div class="metric"><div class="v" id="exFaltaTotal">--</div><div class="l">Falta no treino</div></div>
+        <div class="metric"><div class="v" id="exMedia">--</div><div class="l">Potência média (W)</div></div>
+        <div class="metric"><div class="v" id="exNoAlvo">--</div><div class="l">Tempo na faixa (%)</div></div>
+      </div>
+      <p class="faixa" id="exStatus"></p>
+      <div class="row">
+        <button class="primary" id="exIniciar" disabled>Iniciar treino</button>
+        <button id="exPausar" disabled>Pausar</button>
+        <button id="exEncerrar" disabled>Encerrar</button>
+        <button id="exFechar">Fechar</button>
+      </div>
+      <p class="info" id="exDica"></p>
+      <div id="exResumo" hidden>
+        <h2>Resumo</h2>
+        <table id="exTab"></table>
+        <button id="exCsv">Baixar dados (CSV)</button>
+      </div>
+    </div>
   </div>
 
   <div class="card" id="cardRota">
@@ -110,8 +172,8 @@
   </div>
 
   <div class="card">
-    <h2>Percursos salvos</h2>
-    <p class="info">Cada percurso fica salvo neste aparelho, neste navegador, com uma linha por segundo pedalado.</p>
+    <h2>Atividades salvas</h2>
+    <p class="info">Cada percurso ou treino feito fica salvo neste aparelho, neste navegador, com uma linha por segundo pedalado.</p>
     <div id="listaAtiv"></div>
   </div>
 
@@ -140,6 +202,7 @@
 
 <!-- MONTAR: src/ftms.js -->
 <!-- MONTAR: src/percurso.js -->
+<!-- MONTAR: src/treino.js -->
 <!-- MONTAR: src/historico.js -->
 <!-- MONTAR: rotas -->
 <script>
@@ -173,6 +236,7 @@ function send(bytes, label) {
 
 function setControls(on) {
   rotaTrainerConectado(on);
+  treinoTrainerConectado(on);
   for (const id of ['btnErg', 'btnGrade', 'btnFlat']) $(id).disabled = !on;
 }
 
@@ -303,9 +367,9 @@ function rotaTrainerConectado(on) {
   atualizarBotoes();
 }
 
-function atualizarBotoes() {
+function botoesRota() {
   const e = rota.estado;
-  $('btnIniciar').disabled = !rota.trainer || e === 'rodando';
+  $('btnIniciar').disabled = !rota.trainer || e === 'rodando' || treinoAtivo();
   $('btnIniciar').textContent = e === 'pausado' ? 'Continuar' : 'Iniciar percurso';
   $('btnPausar').disabled = e !== 'rodando';
   $('btnEncerrar').disabled = e !== 'rodando' && e !== 'pausado';
@@ -425,6 +489,7 @@ function salvarCsv(linhas, inicio) {
   a.download = `percurso-${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}-${z(d.getHours())}-${z(d.getMinutes())}.csv`;
   a.click();
 }
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const baixarCsv = () => salvarCsv(rota.amostras, rota.amostras[0]?.hora || new Date().toISOString());
 
 // Lista dos percursos salvos no aparelho, do mais recente para o mais antigo.
@@ -437,13 +502,16 @@ async function listarAtividades() {
   box.innerHTML = '';
   for (const at of lista) {
     const quando = new Date(at.inicio).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-    const detalhe = at.concluida
-      ? `${fmtKm(at.distancia_m)} de ${fmtKm(at.distancia_total_m)} km · ${fmtTempo(at.tempo_s)} · ${at.potencia_media_w} W médios` +
-        (at.fc_media_bpm ? ` · ${at.fc_media_bpm} bpm` : '')
-      : 'não encerrado (a página fechou ou o percurso foi trocado no meio)';
+    const treino = at.tipo === 'treino';
+    const detalhe = !at.concluida ? 'não encerrado (a página fechou ou a atividade foi trocada no meio)'
+      : (treino ? `${fmtTempo(at.tempo_s)} de ${fmtTempo(at.duracao_total_s)} · ${at.potencia_media_w} W médios` +
+          (at.no_alvo_pct !== null ? ` · ${at.no_alvo_pct}% na faixa` : '')
+        : `${fmtKm(at.distancia_m)} de ${fmtKm(at.distancia_total_m)} km · ${fmtTempo(at.tempo_s)} · ${at.potencia_media_w} W médios`) +
+        (at.fc_media_bpm ? ` · ${at.fc_media_bpm} bpm` : '');
+    const titulo = treino ? `Treino: ${esc(at.rota)}` : `${esc(at.rota)} (${at.versao_pct}%)`;
     const el = document.createElement('div');
     el.className = 'ativ';
-    el.innerHTML = `<div class="txt">${at.rota} (${at.versao_pct}%) · ${quando}<small>${detalhe}</small></div>`;
+    el.innerHTML = `<div class="txt">${titulo} · ${quando}<small>${detalhe}</small></div>`;
     const bCsv = document.createElement('button');
     bCsv.textContent = 'Baixar CSV';
     bCsv.onclick = async () => salvarCsv(await Historico.lerSegundos(at.id), at.inicio);
@@ -474,9 +542,317 @@ $('btnIniciar').onclick = iniciar;
 $('btnPausar').onclick = pausar;
 $('btnEncerrar').onclick = encerrar;
 $('btnBaixar').onclick = baixarCsv;
+// ---------- Treinos ----------
+// Editor: a pessoa monta blocos de duração + faixa de watts e salva com um nome.
+let edicao = null; // { id, criado, nome, blocos: [{ dur: '5:00', min, max }] }
+
+const blocosDaEdicao = () => edicao.blocos.map(b => ({
+  seg: Treino.lerDuracao(b.dur), min: Number(b.min), max: Number(b.max),
+}));
+
+async function listarTreinos() {
+  let lista;
+  try { lista = await Historico.listarTreinos(); }
+  catch (e) { $('listaTreinos').textContent = 'Este navegador não permite salvar dados: ' + e.message; return; }
+  const box = $('listaTreinos');
+  if (!lista.length) { box.innerHTML = '<p class="info">Nenhum treino salvo ainda. Toque em "Novo treino" para montar o primeiro.</p>'; return; }
+  box.innerHTML = '';
+  for (const t of lista) {
+    const ws = t.blocos.flatMap(b => [b.min, b.max]);
+    const el = document.createElement('div');
+    el.className = 'ativ';
+    el.innerHTML = `<div class="txt">${esc(t.nome)}<small>${Treino.fmtDuracao(Treino.duracaoTotal(t))} · ` +
+      `${t.blocos.length} bloco${t.blocos.length > 1 ? 's' : ''} · ${Math.min(...ws)} a ${Math.max(...ws)} W</small></div>`;
+    const botao = (txt, fn, primario) => {
+      const b = document.createElement('button');
+      b.textContent = txt;
+      if (primario) b.className = 'primary';
+      b.onclick = fn;
+      b.disabled = treinoAtivo() || rotaAtiva();
+      el.append(b);
+    };
+    botao('Fazer', () => abrirTreino(t), true);
+    botao('Editar', () => abrirEditor(t));
+    botao('Apagar', async () => {
+      if (!confirm(`Apagar o treino "${t.nome}"?`)) return;
+      await Historico.apagarTreino(t.id);
+      listarTreinos();
+    });
+    box.append(el);
+  }
+}
+
+function abrirEditor(t) {
+  fecharTreino();
+  edicao = t
+    ? { id: t.id, criado: t.criado, nome: t.nome, blocos: t.blocos.map(b => ({ dur: Treino.fmtDuracao(b.seg), min: b.min, max: b.max })) }
+    : { id: null, nome: '', blocos: [{ dur: '10:00', min: 100, max: 130 }] };
+  $('edTitulo').textContent = t ? 'Editar treino' : 'Novo treino';
+  $('edNome').value = edicao.nome;
+  $('edErros').textContent = '';
+  $('editor').hidden = false;
+  $('btnNovoTreino').hidden = true;
+  desenharBlocosEditor();
+  $('editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function fecharEditor() {
+  edicao = null;
+  $('editor').hidden = true;
+  $('btnNovoTreino').hidden = false;
+}
+
+function desenharBlocosEditor() {
+  const box = $('edBlocos');
+  box.innerHTML = '';
+  edicao.blocos.forEach((b, i) => {
+    const linha = document.createElement('div');
+    linha.className = 'bl';
+    linha.innerHTML = `<span class="n">${i + 1}</span>` +
+      `<input type="text" inputmode="numeric" data-k="dur" value="${esc(b.dur)}" aria-label="Duração do bloco ${i + 1}">` +
+      `<input type="number" data-k="min" value="${b.min}" min="0" max="2000" step="5" aria-label="Watts mínimo do bloco ${i + 1}">` +
+      `<input type="number" data-k="max" value="${b.max}" min="0" max="2000" step="5" aria-label="Watts máximo do bloco ${i + 1}">` +
+      `<span class="acoes"><button data-a="dup" title="Duplicar bloco" aria-label="Duplicar bloco ${i + 1}">⧉</button>` +
+      `<button data-a="del" title="Remover bloco" aria-label="Remover bloco ${i + 1}">✕</button></span>`;
+    linha.querySelectorAll('input').forEach(inp => {
+      inp.oninput = () => { b[inp.dataset.k] = inp.value; $('edErros').textContent = ''; atualizarResumoEditor(); };
+    });
+    linha.querySelector('[data-a=dup]').onclick = () => { edicao.blocos.splice(i + 1, 0, { ...b }); desenharBlocosEditor(); };
+    linha.querySelector('[data-a=del]').onclick = () => { edicao.blocos.splice(i, 1); desenharBlocosEditor(); };
+    box.append(linha);
+  });
+  atualizarResumoEditor();
+}
+
+function atualizarResumoEditor() {
+  const blocos = blocosDaEdicao().filter(b => b.seg && b.max > 0);
+  const total = blocos.reduce((s, b) => s + b.seg, 0);
+  $('edTotal').textContent = blocos.length ? `Duração total: ${Treino.fmtDuracao(total)}` : '';
+  desenharGraficoTreino($('edGrafico'), { blocos });
+}
+
+// Gráfico dos blocos: a faixa de watts de cada bloco em destaque. No treino em
+// andamento, a parte feita fica mais forte e a linha mostra a potência real.
+function desenharGraficoTreino(svg, treino, feito = 0, potencias = []) {
+  const W = 600, H = 120, total = Treino.duracaoTotal(treino);
+  if (!total) { svg.innerHTML = ''; return; }
+  // O eixo começa um pouco abaixo do menor alvo para a faixa de watts aparecer.
+  const topo = Math.max(...treino.blocos.map(b => b.max), ...potencias, 1) * 1.1;
+  const base = Math.min(...treino.blocos.map(b => b.min)) * 0.5;
+  const X = t => (t / total) * W, Y = w => H - (Math.min(Math.max(w, base), topo) - base) / (topo - base) * H;
+  let ini = 0, rects = '';
+  for (const b of treino.blocos) {
+    rects += `<rect x="${X(ini).toFixed(1)}" y="${Y(b.min).toFixed(1)}" width="${Math.max(X(b.seg) - 1, 1).toFixed(1)}" height="${(H - Y(b.min)).toFixed(1)}" fill="var(--line)"/>` +
+      `<rect x="${X(ini).toFixed(1)}" y="${Y(b.max).toFixed(1)}" width="${Math.max(X(b.seg) - 1, 1).toFixed(1)}" height="${(Y(b.min) - Y(b.max)).toFixed(1)}" fill="var(--accent)" opacity="0.45"/>`;
+    ini += b.seg;
+  }
+  let extra = '';
+  if (feito > 0) {
+    extra += `<rect x="0" y="0" width="${X(feito).toFixed(1)}" height="${H}" fill="var(--accent)" opacity="0.12"/>` +
+      `<line x1="${X(feito).toFixed(1)}" y1="0" x2="${X(feito).toFixed(1)}" y2="${H}" stroke="var(--ink)" stroke-width="1.5"/>`;
+  }
+  if (potencias.length > 1) {
+    const passo = Math.max(1, Math.ceil(potencias.length / 600));
+    const pts = [];
+    for (let i = 0; i < potencias.length; i += passo) pts.push(`${X(i + 1).toFixed(1)},${Y(potencias[i]).toFixed(1)}`);
+    extra += `<polyline points="${pts.join(' ')}" fill="none" stroke="var(--ink)" stroke-width="1.5" opacity="0.8"/>`;
+  }
+  svg.innerHTML = rects + extra;
+}
+
+async function salvarEdicao() {
+  edicao.nome = $('edNome').value.trim();
+  const treino = { nome: edicao.nome, blocos: blocosDaEdicao() };
+  const erros = Treino.validar(treino);
+  if (erros.length) { $('edErros').textContent = erros.join('\n'); return; }
+  const agora = new Date().toISOString();
+  const registro = { ...treino, criado: edicao.criado || agora, alterado: agora };
+  if (edicao.id) registro.id = edicao.id;
+  try {
+    await Historico.salvarTreino(registro);
+  } catch (e) { $('edErros').textContent = 'Não foi possível salvar: ' + e.message; return; }
+  log(`treino salvo: ${treino.nome}`);
+  fecharEditor();
+  listarTreinos();
+}
+
+$('btnNovoTreino').onclick = () => abrirEditor(null);
+$('edAdd').onclick = () => {
+  const ult = edicao.blocos[edicao.blocos.length - 1];
+  edicao.blocos.push(ult ? { ...ult } : { dur: '5:00', min: 100, max: 130 });
+  desenharBlocosEditor();
+};
+$('edCancelar').onclick = fecharEditor;
+$('edSalvar').onclick = salvarEdicao;
+
+// Execução: o rolo fica em ERG no meio da faixa de cada bloco, e cada segundo
+// vai para o histórico com a faixa alvo, como nos percursos.
+const ex = {
+  treino: null, estado: 'parado', seg: 0, timer: null, atividade: null, amostras: [],
+  blocoAtual: -1, somaPot: 0, noAlvo: 0, trainer: false,
+};
+const treinoAtivo = () => ex.estado === 'rodando' || ex.estado === 'pausado';
+const rotaAtiva = () => rota.estado === 'rodando' || rota.estado === 'pausado';
+
+function abrirTreino(t) {
+  fecharEditor();
+  Object.assign(ex, { treino: t, estado: 'parado', seg: 0, atividade: null, amostras: [], blocoAtual: -1, somaPot: 0, noAlvo: 0 });
+  $('exNome').textContent = t.nome;
+  $('exResumo').hidden = true;
+  $('exec').hidden = false;
+  $('btnNovoTreino').hidden = true;
+  atualizarTelaTreino();
+  $('exec').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function fecharTreino() {
+  if (treinoAtivo()) return;
+  ex.treino = null;
+  $('exec').hidden = true;
+  $('btnNovoTreino').hidden = false;
+}
+
+function treinoTrainerConectado(on) {
+  ex.trainer = on;
+  if (!on && ex.estado === 'rodando') pausarTreino();
+  atualizarBotoes();
+}
+
+function botoesTreino() {
+  const e = ex.estado;
+  $('exIniciar').disabled = !ex.trainer || e === 'rodando' || e === 'fim' || rotaAtiva();
+  $('exIniciar').textContent = e === 'pausado' ? 'Continuar' : 'Iniciar treino';
+  $('exPausar').disabled = e !== 'rodando';
+  $('exEncerrar').disabled = !treinoAtivo();
+  $('exFechar').disabled = treinoAtivo();
+  $('exDica').textContent = !ex.trainer ? 'Conecte o trainer para iniciar.'
+    : rotaAtiva() ? 'Encerre o percurso em andamento para fazer o treino.'
+    : e === 'rodando' ? 'O rolo está em ERG no meio da faixa de cada bloco.'
+    : e === 'pausado' ? 'Pausado. O tempo só corre quando você continuar.'
+    : e === 'fim' ? 'Treino encerrado.' : 'Pronto para começar.';
+  listarTreinos();
+}
+
+// Percurso e treino não rodam juntos: cada mudança de estado atualiza os dois.
+function atualizarBotoes() { botoesRota(); botoesTreino(); }
+
+function iniciarTreino() {
+  const retomando = ex.estado === 'pausado';
+  if (!retomando) {
+    Object.assign(ex, { seg: 0, amostras: [], somaPot: 0, noAlvo: 0 });
+    $('exResumo').hidden = true;
+    ex.atividade = Historico.criarAtividade({
+      tipo: 'treino', inicio: new Date().toISOString(), rota: ex.treino.nome, treino_id: ex.treino.id,
+      duracao_total_s: Treino.duracaoTotal(ex.treino),
+    }).catch(e => { log('não foi possível salvar o treino: ' + e.message); return null; });
+  }
+  ex.blocoAtual = -1; // reenvia o alvo do bloco ao começar ou continuar
+  ex.estado = 'rodando';
+  log(`treino ${retomando ? 'retomado' : 'iniciado'}: ${ex.treino.nome}`);
+  aplicarAlvo();
+  ex.timer = setInterval(passoTreino, 1000);
+  atualizarBotoes();
+}
+
+function aplicarAlvo() {
+  const b = Treino.blocoEm(ex.treino, ex.seg);
+  if (b && b.indice !== ex.blocoAtual) {
+    ex.blocoAtual = b.indice;
+    const w = Treino.alvoErg(b.bloco);
+    send(FTMS.cmdTargetPower(w), `ERG ${w} W (bloco ${b.indice + 1}: ${b.bloco.min} a ${b.bloco.max} W)`);
+  }
+}
+
+function pausarTreino() {
+  clearInterval(ex.timer);
+  ex.estado = 'pausado';
+  atualizarBotoes();
+}
+
+function encerrarTreino() {
+  clearInterval(ex.timer);
+  ex.estado = 'fim';
+  // Sai do ERG: volta para simulação plana, pedalada livre.
+  if (controlPoint) send(FTMS.cmdSimulation({ gradePct: 0 }), 'fim do treino, saindo do ERG');
+  mostrarResumoTreino();
+  atualizarBotoes();
+  const linhas = ex.amostras;
+  ex.atividade?.then(id => id && Historico.atualizarAtividade(id, {
+    fim: new Date().toISOString(), concluida: true, ...Historico.resumir(linhas),
+  })).then(listarAtividades).catch(e => log('falha ao salvar o resumo do treino: ' + e.message));
+}
+
+// Um segundo de treino: grava a linha com a faixa do bloco e troca o alvo do
+// rolo quando o bloco muda.
+function passoTreino() {
+  const b = Treino.blocoEm(ex.treino, ex.seg);
+  if (!b) return encerrarTreino();
+  ex.seg += 1;
+  ex.somaPot += ultimo.potencia;
+  if (Treino.naFaixa(ultimo.potencia, b.bloco) === 0) ex.noAlvo += 1;
+  const linha = {
+    segundo: ex.seg, hora: new Date().toISOString(), potencia_w: ultimo.potencia,
+    cadencia_rpm: Math.round(ultimo.cadencia), fc_bpm: ultimo.fc ?? null,
+    bloco: b.indice + 1, alvo_min_w: b.bloco.min, alvo_max_w: b.bloco.max,
+  };
+  ex.amostras.push(linha);
+  ex.atividade?.then(id => id && Historico.gravarSegundo(id, linha))
+    .catch(e => log('falha ao gravar o segundo ' + linha.segundo + ': ' + e.message));
+  if (ex.seg >= Treino.duracaoTotal(ex.treino)) { atualizarTelaTreino(); return encerrarTreino(); }
+  aplicarAlvo();
+  atualizarTelaTreino();
+}
+
+function atualizarTelaTreino() {
+  const t = ex.treino, total = Treino.duracaoTotal(t);
+  const b = Treino.blocoEm(t, Math.min(ex.seg, total - 1));
+  const ativo = treinoAtivo();
+  $('exBloco').textContent = `${b.indice + 1}/${t.blocos.length}`;
+  $('exAlvo').textContent = `${b.bloco.min}–${b.bloco.max}`;
+  $('exFaltaBloco').textContent = Treino.fmtDuracao(ex.seg >= total ? 0 : b.falta);
+  $('exFaltaTotal').textContent = Treino.fmtDuracao(total - ex.seg);
+  $('exTempo').textContent = Treino.fmtDuracao(ex.seg);
+  $('exMedia').textContent = ex.seg ? Math.round(ex.somaPot / ex.seg) : '--';
+  $('exNoAlvo').textContent = ex.seg ? Math.round(ex.noAlvo / ex.seg * 100) : '--';
+  const f = Treino.naFaixa(ultimo.potencia, b.bloco);
+  $('exPot').textContent = ativo || ultimo.potencia ? ultimo.potencia : '--';
+  $('exPotBox').className = 'metric' + (ativo ? (f === 0 ? ' dentro' : ' fora') : '');
+  $('exStatus').className = 'faixa' + (ativo ? (f === 0 ? ' dentro' : ' fora') : '');
+  $('exStatus').textContent = !ativo ? '' : f === 0 ? 'Dentro da faixa' : f < 0 ? 'Abaixo da faixa' : 'Acima da faixa';
+  desenharGraficoTreino($('exGrafico'), t, ex.seg, ex.amostras.map(a => a.potencia_w));
+}
+
+function mostrarResumoTreino() {
+  const r = Historico.resumir(ex.amostras);
+  const linhas = [
+    ['Treino', esc(ex.treino.nome)],
+    ['Tempo', `${Treino.fmtDuracao(ex.seg)} de ${Treino.fmtDuracao(Treino.duracaoTotal(ex.treino))}`],
+    ['Potência média', `${r.potencia_media_w} W`],
+    ['Potência máxima', `${r.potencia_max_w} W`],
+    ['Tempo na faixa', r.no_alvo_pct !== null ? `${r.no_alvo_pct}%` : '--'],
+    ['Frequência cardíaca média', r.fc_media_bpm ? `${r.fc_media_bpm} bpm` : 'sem cardíaco'],
+  ];
+  // Por bloco: média feita contra a faixa pedida.
+  ex.treino.blocos.forEach((b, i) => {
+    const ls = ex.amostras.filter(a => a.bloco === i + 1);
+    if (ls.length) linhas.push([`Bloco ${i + 1} (${b.min}–${b.max} W)`, `${Math.round(ls.reduce((s, a) => s + a.potencia_w, 0) / ls.length)} W médios`]);
+  });
+  $('exTab').innerHTML = linhas.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  $('exResumo').hidden = false;
+}
+
+$('exIniciar').onclick = iniciarTreino;
+$('exPausar').onclick = pausarTreino;
+$('exEncerrar').onclick = encerrarTreino;
+$('exFechar').onclick = fecharTreino;
+$('exCsv').onclick = () => salvarCsv(ex.amostras, ex.amostras[0]?.hora || new Date().toISOString());
+// Atualiza a potência na tela do treino mesmo entre os segundos gravados.
+setInterval(() => { if (ex.treino && !$('exec').hidden && ex.estado !== 'rodando') atualizarTelaTreino(); }, 1000);
+
 escolherVersao();
 atualizarBotoes();
 listarAtividades();
+listarTreinos();
 </script>
 </body>
 </html>
