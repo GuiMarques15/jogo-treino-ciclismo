@@ -197,6 +197,7 @@
   <div class="card">
     <h2>Registro</h2>
     <div id="log"></div>
+    <div class="row" style="margin:12px 0 0"><button id="btnBaixarLog">Baixar registro da sessão</button></div>
   </div>
 </main>
 
@@ -207,10 +208,23 @@
 <!-- MONTAR: rotas -->
 <script>
 const $ = id => document.getElementById(id);
+// Registro da sessão: aparece na tela (mais recente em cima) e fica guardado
+// em ordem, com data e hora, para baixar como .txt.
+const registro = [];
 const log = msg => {
-  const t = new Date().toLocaleTimeString();
-  $('log').textContent = `${t}  ${msg}\n` + $('log').textContent;
+  const agora = new Date();
+  registro.push(`${agora.toLocaleString('pt-BR')}  ${msg}`);
+  $('log').textContent = `${agora.toLocaleTimeString()}  ${msg}\n` + $('log').textContent;
 };
+function baixarRegistro() {
+  const d = new Date(), z = n => String(n).padStart(2, '0');
+  const cab = [`Registro da sessão — Treino no rolo`, `Baixado em ${d.toLocaleString('pt-BR')}`,
+    `Navegador: ${navigator.userAgent}`, `Trainer: ${$('stTrainer').textContent} · Cardíaco: ${$('stHr').textContent}`, ''];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([cab.concat(registro).join('\n') + '\n'], { type: 'text/plain' }));
+  a.download = `registro-${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}-${z(d.getHours())}-${z(d.getMinutes())}.txt`;
+  a.click();
+}
 const setStatus = (el, ok, text) => { el.textContent = text; el.className = ok ? 'ok' : 'no'; };
 
 if (!navigator.bluetooth) {
@@ -841,6 +855,7 @@ function mostrarResumoTreino() {
   $('exResumo').hidden = false;
 }
 
+$('btnBaixarLog').onclick = baixarRegistro;
 $('exIniciar').onclick = iniciarTreino;
 $('exPausar').onclick = pausarTreino;
 $('exEncerrar').onclick = encerrarTreino;
